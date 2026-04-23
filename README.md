@@ -80,7 +80,7 @@ Future Improvements:
 -Add command for custom usernames
 -Implement private messaging
 -Upgrade to something like epoll for scalability
--Add logging system
--Improve input/output formatting
----
+-Add a loggin system
+-Improve input/ouput formatting
+---******
 
