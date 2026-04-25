@@ -24,12 +24,40 @@ void set_nonblocking(int fd) {
     fcntl(fd, F_SETFL, O_NONBLOCK);
 }
 
+int find_client_by_name(char *name) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i].active && strcmp(clients[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void broadcast(char *msg, int sender_fd) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].active && clients[i].fd != sender_fd) {
             send(clients[i].fd, msg, strlen(msg), 0);
         }
     }
+}
+
+void direct_message(char *target_name, char *msg, int sender_index) {
+    int target_index = find_client_by_name(target_name);
+
+    if (target_index == -1) {
+        char error[BUFFER_SIZE];
+        snprintf(error, sizeof(error), "User %s not found\n", target_name);
+        send(clients[sender_index].fd, error, strlen(error), 0);
+        return;
+    }
+
+    char dm[BUFFER_SIZE];
+    snprintf(dm, sizeof(dm),
+             "[DM from %s]: %s\n",
+             clients[sender_index].name,
+             msg);
+
+    send(clients[target_index].fd, dm, strlen(dm), 0);
 }
 
 void remove_client(int i) {
@@ -44,12 +72,16 @@ void add_client(int client_fd) {
             clients[i].fd = client_fd;
             clients[i].active = 1;
 
-            snprintf(clients[i].name, sizeof(clients[i].name), "User%d", ++user_count);
+            snprintf(clients[i].name, sizeof(clients[i].name),
+                     "User%d", ++user_count);
 
             printf("%s connected\n", clients[i].name);
 
             char welcome[BUFFER_SIZE];
-            snprintf(welcome, sizeof(welcome), "%s has joined the chat\n", clients[i].name);
+            snprintf(welcome, sizeof(welcome),
+                     "%s has joined the chat\n",
+                     clients[i].name);
+
             broadcast(welcome, client_fd);
             return;
         }
@@ -92,7 +124,7 @@ int main() {
 
         int max_fd = server_fd;
 
-        // Add clients to fd set
+        // Add clients
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i].active) {
                 FD_SET(clients[i].fd, &read_fds);
@@ -110,34 +142,66 @@ int main() {
 
         // New connection
         if (FD_ISSET(server_fd, &read_fds)) {
-            new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
+            new_socket = accept(server_fd,
+                                (struct sockaddr *)&address,
+                                (socklen_t *)&addrlen);
             set_nonblocking(new_socket);
             add_client(new_socket);
         }
 
-        // Handle client messages
+        // Handle messages
         for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].active && FD_ISSET(clients[i].fd, &read_fds)) {
+            if (clients[i].active &&
+                FD_ISSET(clients[i].fd, &read_fds)) {
 
                 char buffer[BUFFER_SIZE];
-                int valread = recv(clients[i].fd, buffer, BUFFER_SIZE - 1, 0);
+                int valread = recv(clients[i].fd,
+                                   buffer,
+                                   BUFFER_SIZE - 1,
+                                   0);
 
                 if (valread == 0) {
                     char leave_msg[BUFFER_SIZE];
-                    snprintf(leave_msg, sizeof(leave_msg), "%s has left\n", clients[i].name);
+                    snprintf(leave_msg, sizeof(leave_msg),
+                             "%s has left\n",
+                             clients[i].name);
                     broadcast(leave_msg, clients[i].fd);
                     remove_client(i);
                 }
                 else if (valread > 0) {
                     buffer[valread] = '\0';
 
-                    char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "%s: %s", clients[i].name, buffer);
+                    // 🔥 Direct message handling
+                    if (strncmp(buffer, "/dm ", 4) == 0) {
+                        char target[32];
+                        char message[BUFFER_SIZE];
 
-                    printf("%s", msg);
-                    broadcast(msg, clients[i].fd);
+                        if (sscanf(buffer + 4,
+                                   "%31s %[^\n]",
+                                   target,
+                                   message) == 2) {
+                            direct_message(target, message, i);
+                        } else {
+                            char *usage =
+                                "Usage: /dm <username> <message>\n";
+                            send(clients[i].fd,
+                                 usage,
+                                 strlen(usage),
+                                 0);
+                        }
+                    }
+                    // 🌐 Normal broadcast
+                    else {
+                        char msg[BUFFER_SIZE];
+                        snprintf(msg, sizeof(msg),
+                                 "%s: %s",
+                                 clients[i].name,
+                                 buffer);
+
+                        printf("%s", msg);
+                        broadcast(msg, clients[i].fd);
+                    }
                 }
-                // ignore valread < 0
             }
         }
     }
