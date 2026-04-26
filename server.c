@@ -19,7 +19,6 @@ typedef struct {
 } client_t;
 
 client_t clients[MAX_CLIENTS];
-int user_count = 0;
 
 void set_nonblocking(int fd) {
     fcntl(fd, F_SETFL, O_NONBLOCK);
